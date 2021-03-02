@@ -41,7 +41,7 @@ type Client struct {
 
 	*fasthttp.HostClient
 	wg                sync.WaitGroup
-	request           *fasthttp.Request
+	messagesRing MessagesRing
 	successStatusCode int
 
 	sync.Mutex
@@ -56,7 +56,6 @@ func New(request *fasthttp.Request, timeout time.Duration, sc int) *Client {
 	addr, isTLS := acquireAddr(request)
 	return &Client{
 		Jobsch:            make(chan struct{}, jobCapacity),
-		request:           request,
 		statusCodeLabels:  make(map[int]prometheus.Labels),
 		errorMessages:     make(map[string]prometheus.Labels),
 		successStatusCode: sc,
@@ -112,7 +111,7 @@ func (c *Client) Flush() {
 }
 
 // RunWorkers runs n goroutines to serve jobs from Jobsch
-func (c *Client) RunWorkers(n int) {
+func (c *Client) RunWorkers(n int, messagesRing *MessagesRing) {
 	if n < 1 {
 		n = 1
 	}
@@ -123,16 +122,16 @@ func (c *Client) RunWorkers(n int) {
 			c.workers++
 			c.Unlock()
 
-			c.run()
+			c.run(messagesRing.NextMessage().Request)
 			c.wg.Done()
 		}()
 	}
 }
 
-func (c *Client) run() {
+func (c *Client) run(request *fasthttp.Request) {
 	var resp fasthttp.Response
 	r := new(fasthttp.Request)
-	c.request.CopyTo(r)
+	request.CopyTo(r)
 	for range c.Jobsch {
 		s := time.Now()
 		err := c.Do(r, &resp)

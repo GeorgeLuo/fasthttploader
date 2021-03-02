@@ -1,6 +1,7 @@
 package main
 
 import (
+	"./fastclient"
 	"flag"
 	"fmt"
 	"log"
@@ -10,16 +11,17 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hagen1778/fasthttploader/report"
+	"./report"
 	"github.com/valyala/fasthttp"
 )
 
 var (
-	method      = flag.String("m", "GET", "Set HTTP method")
+	directory   = flag.String("d", "/Users/gluo17/Documents/workspace/tokenizer/regression/", "directory of email bodies")
+	method      = flag.String("m", "POST", "Set HTTP method")
 	headers     = flag.String("h", "", "Set headers")
 	body        = flag.String("b", "", "Set body")
 	accept      = flag.String("A", "", "Set Accept headers")
-	contentType = flag.String("T", "text/html", "Set content-type headers")
+	contentType = flag.String("T", "application/octet-stream", "Set content-type headers")
 
 	fileName = flag.String("r", "report.html", "Set filename to store final report")
 	web      = flag.Bool("web", false, "Auto open generated report at browser")
@@ -43,8 +45,6 @@ Notice: fasthttploader would force aggressive burst stages before testing to det
 To avoid this you need to set -c and -q parameters.
 Options:
 `
-
-var req = new(fasthttp.Request)
 
 func main() {
 	flag.Usage = func() {
@@ -70,9 +70,10 @@ func main() {
 		defer pprof.StopCPUProfile()
 	}
 
-	applyHeaders()
-	req.AppendBodyString(*body)
-	run()
+	messagesRing := fastclient.NewMessagesRing("http://glowingshowing.corp.ne1.yahoo.com:8080/api/v1/scan",
+		"/Users/gluo17/Documents/workspace/tokenizer/regression")
+
+	run(&messagesRing)
 
 	if *web {
 		err := report.OpenBrowser(*fileName)

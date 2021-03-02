@@ -1,16 +1,15 @@
 package main
 
 import (
+	"./fastclient"
+	"./ratelimiter"
+	"./report"
 	"context"
 	"fmt"
+	"github.com/cheggaaa/pb"
 	"log"
 	"os"
 	"time"
-
-	"github.com/cheggaaa/pb"
-	"github.com/hagen1778/fasthttploader/fastclient"
-	"github.com/hagen1778/fasthttploader/ratelimiter"
-	"github.com/hagen1778/fasthttploader/report"
 )
 
 const (
@@ -48,9 +47,10 @@ type loadConfig struct {
 	c int
 }
 
-func run() {
+// messagesRing contains a ring of message wrappers around Request objects
+func run(messagesRing *fastclient.MessagesRing) {
 	r = &report.Page{
-		Title:           string(req.URI().Host()),
+		Title:           messagesRing.Uri,
 		RequestDuration: make(map[float64][]float64),
 		Interval:        samplePeriod.Seconds(),
 	}
@@ -58,17 +58,17 @@ func run() {
 	cfg := loadConfig{}
 	if *q == 0 {
 		fmt.Println("Run burst-load phase")
-		burstThroughput(&cfg)
+		burstThroughput(&cfg, messagesRing)
 
 		fmt.Println("Run calibrate phase")
-		calibrateThroughput(&cfg)
+		calibrateThroughput(&cfg, messagesRing)
 	} else {
 		cfg.qps = float64(*q)
 		cfg.c = *c
 	}
 
 	fmt.Println("Run load phase")
-	makeLoad(&cfg)
+	makeLoad(&cfg, messagesRing)
 
 	f, err := os.Create(*fileName)
 	if err != nil {
@@ -78,13 +78,13 @@ func run() {
 	f.Close()
 }
 
-func burstThroughput(cfg *loadConfig) {
-	client = fastclient.New(req, *t, *successStatusCode)
+func burstThroughput(cfg *loadConfig, messagesRing *fastclient.MessagesRing) {
+	client = fastclient.New(messagesRing.NextMessage().Request, *t, *successStatusCode)
 	startTime := time.Now()
 	timeout := time.After(calibrateDuration)
 	bar, progressTicker := acquireProgressBar(calibrateDuration)
 
-	client.RunWorkers(*c)
+	client.RunWorkers(*c, messagesRing)
 	for {
 		select {
 		case <-timeout:
@@ -105,13 +105,13 @@ func burstThroughput(cfg *loadConfig) {
 	}
 }
 
-func calibrateThroughput(cfg *loadConfig) {
-	client = fastclient.New(req, *t, *successStatusCode)
+func calibrateThroughput(cfg *loadConfig, messagesRing *fastclient.MessagesRing) {
+	client = fastclient.New(messagesRing.NextMessage().Request, *t, *successStatusCode)
 	t := time.Now()
 	ctx, cancel := context.WithCancel(context.Background())
 
 	throttle.SetLimit(cfg.qps)
-	client.RunWorkers(cfg.c)
+	client.RunWorkers(cfg.c, messagesRing)
 	go func() {
 		timeout := time.After(adjustmentDuration)
 		sampler := time.Tick(samplePeriod)
@@ -129,7 +129,7 @@ func calibrateThroughput(cfg *loadConfig) {
 				bar.Increment()
 			case <-sampler:
 				printState()
-				calibrate()
+				calibrate(messagesRing)
 			}
 		}
 	}()
@@ -139,7 +139,7 @@ func calibrateThroughput(cfg *loadConfig) {
 
 var await = 0
 
-func calibrate() {
+func calibrate(messagesRing *fastclient.MessagesRing) {
 	if await > 0 {
 		await -= 1
 		return
@@ -148,7 +148,7 @@ func calibrate() {
 	if !isFlawed() {
 		if client.Overflow() > 0 {
 			n := int(float64(client.Amount()) * multiplier)
-			client.RunWorkers(n)
+			client.RunWorkers(n, messagesRing)
 			await += 1
 		} else {
 			throttle.SetLimit(throttle.Limit() * (1 + multiplier))
@@ -160,12 +160,12 @@ func calibrate() {
 	}
 }
 
-func makeLoad(cfg *loadConfig) {
-	client = fastclient.New(req, *t, *successStatusCode)
+func makeLoad(cfg *loadConfig, messagesRing *fastclient.MessagesRing) {
+	client = fastclient.New(messagesRing.NextMessage().Request, *t, *successStatusCode)
 	startTime := time.Now()
 	ctx, cancel := context.WithCancel(context.Background())
 	throttle.SetLimit(cfg.qps)
-	client.RunWorkers(cfg.c)
+	client.RunWorkers(cfg.c, messagesRing)
 	go func() {
 		stateTick := time.Tick(samplePeriod)
 		timeout := time.After(*d)
