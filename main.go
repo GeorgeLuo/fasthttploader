@@ -8,7 +8,6 @@ import (
 	"os"
 	"regexp"
 	"runtime/pprof"
-	"strings"
 	"time"
 
 	"./report"
@@ -16,20 +15,23 @@ import (
 )
 
 var (
-	directory   = flag.String("d", "/Users/gluo17/Documents/workspace/tokenizer/regression/", "directory of email bodies")
-	method      = flag.String("m", "POST", "Set HTTP method")
-	headers     = flag.String("h", "", "Set headers")
-	body        = flag.String("b", "", "Set body")
-	accept      = flag.String("A", "", "Set Accept headers")
-	contentType = flag.String("T", "application/octet-stream", "Set content-type headers")
+	directory   = flag.String("dir", "/Users/gluo17/Documents/workspace/tokenizer/regression", "directory of email bodies")
 
 	fileName = flag.String("r", "report.html", "Set filename to store final report")
+
 	web      = flag.Bool("web", false, "Auto open generated report at browser")
 
-	d = flag.Duration("d", 30*time.Second, "Cant be less than 20sec")
-	t = flag.Duration("t", 5*time.Second, "Request timeout")
+	destinationUrl = flag.String("dest", "http://terraintrain.corp.ne1.yahoo.com:8080/api/v1/scan", "Auto open generated report at browser")
+
+	// benchmark customizations
+	sendHeaders = flag.Bool("sh", true, "Send only emails with usable headers")
+	maxFileSize = flag.Int("maxfs", 50 * 1000 * 1000, "Cap on file size (kb)")
+	minFileSize = flag.Int("minfs", 0, "Min file size (kb)")
+
+	d = flag.Duration("d", 60*time.Second, "Cant be less than 20sec")
+	t = flag.Duration("t", 100*time.Millisecond, "Request timeout")
 	q = flag.Int("q", 0, "Request per second limit. Detect automatically, if not setted")
-	c = flag.Int("c", 500, "Number of supposed clients")
+	c = flag.Int("c", 10, "Number of supposed clients")
 
 	debug              = flag.Bool("debug", false, "Print debug messages if true")
 	disableKeepAlive   = flag.Bool("k", false, "Disable keepalive if true")
@@ -53,9 +55,6 @@ func main() {
 	}
 
 	flag.Parse()
-	if flag.NArg() < 1 {
-		usageAndExit("")
-	}
 
 	if *d < time.Second*20 {
 		usageAndExit("Duration cant be less than 20s")
@@ -70,10 +69,10 @@ func main() {
 		defer pprof.StopCPUProfile()
 	}
 
-	messagesRing := fastclient.NewMessagesRing("http://glowingshowing.corp.ne1.yahoo.com:8080/api/v1/scan",
-		"/Users/gluo17/Documents/workspace/tokenizer/regression")
+	messagesRing := fastclient.NewMessagesRing(*destinationUrl,
+		*directory, *maxFileSize, *minFileSize, *sendHeaders)
 
-	run(&messagesRing)
+	run(*c, &messagesRing)
 
 	if *web {
 		err := report.OpenBrowser(*fileName)
@@ -88,6 +87,16 @@ func main() {
 		fmt.Printf("Check test results by executing next command:\n %s\n", command)
 	}
 
+	var hasHeaders int
+
+	for _, detail := range messagesRing.UnderlyingData {
+		if detail.BodyDetail.HasHeaders {
+			hasHeaders++
+		}
+	}
+	fmt.Printf("headerless=%d, headered=%d, avgBodySize=%gkb, maxBodySize=%gkb, minBodySize=%d\n\n", len(messagesRing.UnderlyingData) - hasHeaders,
+		hasHeaders, messagesRing.AvgSize/1000.0, float64(messagesRing.MaxSz)/1000.0, messagesRing.MinSz)
+
 	if *memprofile != "" {
 		f, err := os.Create(*memprofile)
 		if err != nil {
@@ -100,35 +109,6 @@ func main() {
 }
 
 var re = regexp.MustCompile("^([\\w-]+):\\s*(.+)")
-
-func applyHeaders() {
-	var url string
-	req.Header.SetContentType(*contentType)
-	if *headers != "" {
-		headers := strings.Split(*headers, ";")
-		for _, h := range headers {
-			matches := re.FindStringSubmatch(h)
-			if len(matches) < 1 {
-				usageAndExit(fmt.Sprintf("could not parse the provided input; input = %v", h))
-			}
-			req.Header.Set(matches[1], matches[2])
-		}
-	}
-	if *accept != "" {
-		req.Header.Set("Accept", *accept)
-	}
-	url = flag.Args()[0]
-	req.Header.SetMethod(strings.ToUpper(*method))
-	req.Header.SetRequestURI(url)
-	if !*disableCompression {
-		req.Header.Set("Accept-Encoding", "gzip")
-	}
-	if *disableKeepAlive {
-		req.Header.Set("Connection", "close")
-	} else {
-		req.Header.Set("Connection", "keep-alive")
-	}
-}
 
 func usageAndExit(msg string) {
 	flag.Usage()

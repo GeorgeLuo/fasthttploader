@@ -24,6 +24,8 @@ type Page struct {
 	RequestDuration map[float64][]float64
 	StatusCodes map[string]float64
 	ErrorMessages map[string]int
+	HasHeaders []uint64
+	BodySizeHistogram map[float64][]float64
 }
 
 type seriesFunc func() string
@@ -43,6 +45,18 @@ type seriesFunc func() string
 	%}
 {% endfunc %}
 
+{% func (p *Page) UpdateBodySizeHistogram (d map[float64]float64) %}
+	{% code
+		for k, v := range d {
+			if _, ok := p.BodySizeHistogram[k]; !ok {
+				p.BodySizeHistogram[k] = make([]float64, 0)
+			}
+
+			p.BodySizeHistogram[k] = append(p.BodySizeHistogram[k], v)
+		}
+	%}
+{% endfunc %}
+
 {% func PrintPage(p *Page) %}
 <html>
 	<head>
@@ -54,7 +68,8 @@ type seriesFunc func() string
 		<style>{%z= MustAsset("report/static/css/main.css") %}</style>
 	</head>
 	 <body>
-		{%= p.simpleChart("connections", p.connectionSeries) %}
+	 	{%= p.simpleChart("hasHeaders", p.hasHeadersSeries) %}
+	 	{%= p.simpleChart("connections", p.connectionSeries) %}
 		{%= p.simpleChart("qps", p.qpsSeries) %}
 		{%= p.simpleChart("errors-vs-timeouts", p.errorSeries) %}
 		{%= p.simpleChart("latency", p.durationSeries) %}
@@ -172,6 +187,13 @@ type seriesFunc func() string
 	[{
 		name: 'Connections',
 		data: [{%s= uint64SliceToString(p.Connections) %}]
+	}]
+{% endfunc %}
+
+{% func (p *Page) hasHeadersSeries()  %}
+	[{
+		name: 'Has Headers',
+		data: [{%s= uint64SliceToString(p.HasHeaders) %}]
 	}]
 {% endfunc %}
 

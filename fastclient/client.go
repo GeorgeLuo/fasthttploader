@@ -26,7 +26,9 @@ var (
 const (
 	jobCapacity         = 10000
 	maxIdleConnDuration = time.Second
+	// max int value
 	maxConns            = 1<<31 - 1
+	//maxConns            = 1000
 )
 
 func init() {
@@ -122,6 +124,8 @@ func (c *Client) RunWorkers(n int, messagesRing *MessagesRing) {
 			c.workers++
 			c.Unlock()
 
+			// increment client stats
+			DoRequestMetrics(messagesRing.NextMessage().BodyDetail, hasHeaders, bodySizeHistogram)
 			c.run(messagesRing.NextMessage().Request)
 			c.wg.Done()
 		}()
@@ -144,9 +148,12 @@ func (c *Client) run(request *fasthttp.Request) {
 		}
 
 		sc := resp.StatusCode()
+		//log.Printf("statusCode: %+v, len(body): %+v", resp.StatusCode(), len(resp.Body()))
 		if c.successStatusCode == sc {
 			requestSuccess.Inc()
 		}
+
+		resp.ResetBody()
 
 		c.withStatusCode(sc).Inc()
 		requestDuration.Observe(float64(time.Since(s).Seconds()))

@@ -2,6 +2,7 @@ package fastclient
 
 import (
 	"github.com/valyala/fasthttp"
+	"log"
 	"strings"
 )
 
@@ -9,8 +10,19 @@ import (
 type VadeRequestWrapper struct {
 	// underlying request
 	Request *fasthttp.Request
+	BodyDetail BodyDetail
 }
 
+type BodyDetail struct {
+	// Size in bytes
+	Size       int
+	// If the request was headerless
+	HasHeaders bool
+}
+
+// NewVadeRequest is a method to initialize a VadeRequest
+// XHelo is a domain the email came from
+// XInet is the IP address the email came from
 func NewVadeRequest(requestURI string, XInet, XHelo, XMailFrom string, XRcptTo []string, body []byte) VadeRequestWrapper {
 
 	var request fasthttp.Request
@@ -29,5 +41,30 @@ func NewVadeRequest(requestURI string, XInet, XHelo, XMailFrom string, XRcptTo [
 
 	request.Header.SetContentType("application/octet-stream")
 
-	return VadeRequestWrapper{Request:&request}
+	bD := BodyDetail{
+		Size: len(body),
+		HasHeaders: true}
+
+	return VadeRequestWrapper{Request:&request, BodyDetail:bD}
 }
+
+func NewHeadlerlessVadeRequest(requestURI string, body []byte) VadeRequestWrapper {
+
+	var request fasthttp.Request
+
+	request.AppendBody(body)
+
+	request.Header.SetRequestURI(requestURI)
+	request.Header.SetMethod(strings.ToUpper("POST"))
+	request.Header.Set("Connection", "keep-alive")
+
+	request.Header.SetContentType("application/octet-stream")
+	log.Printf("headerless")
+
+	bD := BodyDetail{
+		Size: len(body),
+		HasHeaders: false}
+
+	return VadeRequestWrapper{Request:&request, BodyDetail: bD}
+}
+

@@ -11,15 +11,17 @@ var (
 	errorMessages   *prometheus.CounterVec
 	requestDuration prometheus.Summary
 
-	timeouts       prometheus.Counter
-	errors         prometheus.Counter
-	requestSum     prometheus.Counter
-	requestSuccess prometheus.Counter
-	connError      prometheus.Counter
-	bytesWritten   prometheus.Counter
-	bytesRead      prometheus.Counter
-	writeError     prometheus.Counter
-	readError      prometheus.Counter
+	timeouts          prometheus.Counter
+	errors            prometheus.Counter
+	requestSum        prometheus.Counter
+	requestSuccess    prometheus.Counter
+	connError         prometheus.Counter
+	bytesWritten      prometheus.Counter
+	bytesRead         prometheus.Counter
+	writeError        prometheus.Counter
+	readError         prometheus.Counter
+	bodySizeHistogram prometheus.Histogram
+	hasHeaders        prometheus.Counter
 )
 
 func initMetrics() {
@@ -116,6 +118,19 @@ func initMetrics() {
 			Help: "Number of errors while reading",
 		},
 	)
+
+	hasHeaders = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "hasHeaders",
+			Help: "Number of requests that had headers",
+		},
+	)
+
+	bodySizeHistogram = prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Name: "body_size_histogram",
+			Help: "Distribution of body size",
+		})
 }
 
 func registerMetrics() {
@@ -132,6 +147,8 @@ func registerMetrics() {
 	prometheus.MustRegister(readError)
 	prometheus.MustRegister(statusCodes)
 	prometheus.MustRegister(errorMessages)
+	prometheus.MustRegister(bodySizeHistogram)
+	prometheus.MustRegister(hasHeaders)
 }
 
 func unregisterMetrics() {
@@ -148,6 +165,8 @@ func unregisterMetrics() {
 	prometheus.Unregister(readError)
 	prometheus.Unregister(statusCodes)
 	prometheus.Unregister(errorMessages)
+	prometheus.Unregister(bodySizeHistogram)
+	prometheus.Unregister(hasHeaders)
 }
 
 func flushMetrics() {
@@ -233,4 +252,21 @@ func (c *Client) ErrorMessages() map[string]int {
 
 	}
 	return result
+}
+
+// BodySize returns map quantile:value for requestDuration-metric
+func (*Client) BodySize() map[float64]float64 {
+	bodySizeHistogram.Write(m)
+	result := make(map[float64]float64, len(m.Summary.Quantile))
+	for _, v := range m.Summary.Quantile {
+		result[*v.Quantile] = *v.Value
+	}
+
+	return result
+}
+
+// Errors returns value of hasHeaders
+func (*Client) HasHeaders() uint64 {
+	hasHeaders.Write(m)
+	return uint64(*m.Counter.Value)
 }
